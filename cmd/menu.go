@@ -86,7 +86,7 @@ func showEnhancedBootMenu(dir, bootRoot string, timeout int, enableHardware bool
 
 	fmt.Println("Use Volume Up/Down or Arrow keys to navigate")
 	fmt.Println("Press Power Button or Enter to select")
-	fmt.Println("Press Q to quit")
+	fmt.Println("Press Q to quit\n")
 
 	selectedEntry, err := bootMenu.Show()
 	if err != nil {

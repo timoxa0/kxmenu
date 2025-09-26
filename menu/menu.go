@@ -146,6 +146,12 @@ func NewBootMenu(entries []*entry.BootEntry, title string) *BootMenu {
 			}
 			description += fmt.Sprintf("Kernel: %s", e.Linux)
 		}
+		if e.Devicetree != "" {
+			if description != "" {
+				description += " | "
+			}
+			description += fmt.Sprintf("DTB: %s", e.Devicetree)
+		}
 
 		menu.Items[i] = MenuItem{
 			Entry:       e,
@@ -342,22 +348,37 @@ func (m *BootMenu) showInteractiveMenu() (*entry.BootEntry, error) {
 // drawMenu renders the boot menu
 func (m *BootMenu) drawMenu() {
 	// Calculate menu dimensions
-	menuHeight := len(m.Items) + 6 // title + border + footer
-	startRow := max(1, (m.Terminal.Height-menuHeight)/2)
+	menuItemsHeight := len(m.Items)
+	titleHeight := 3      // title + separator + blank line
+	bottomInfoHeight := 6 // info panel + controls
+	totalMenuHeight := titleHeight + menuItemsHeight + bottomInfoHeight
+
+	// Calculate vertical centering
+	startRow := max(1, (m.Terminal.Height-totalMenuHeight)/2)
 
 	// Clear screen and position cursor
 	fmt.Print(ClearScreen + EscSeq + fmt.Sprintf("%d;1H", startRow))
 
-	// Draw title
+	// Draw title (centered)
 	titlePadding := max(0, (m.Terminal.Width-len(m.Title))/2)
 	fmt.Print(strings.Repeat(" ", titlePadding) + BoldText + CyanText + m.Title + ResetColor + "\n")
 
-	// Draw separator
+	// Draw separator (centered)
 	separator := strings.Repeat("─", min(m.Terminal.Width-4, len(m.Title)+10))
 	separatorPadding := max(0, (m.Terminal.Width-len(separator))/2)
 	fmt.Print(strings.Repeat(" ", separatorPadding) + separator + "\n\n")
 
-	// Draw menu items
+	// Calculate menu item centering
+	maxItemWidth := 0
+	for _, item := range m.Items {
+		if len(item.DisplayName) > maxItemWidth {
+			maxItemWidth = len(item.DisplayName)
+		}
+	}
+	maxItemWidth += 4 // Add space for selection indicator and padding
+	itemPadding := max(0, (m.Terminal.Width-maxItemWidth)/2)
+
+	// Draw menu items (centered)
 	for i, item := range m.Items {
 		prefix := "  "
 		suffix := ""
@@ -369,27 +390,49 @@ func (m *BootMenu) drawMenu() {
 
 		// Truncate long names to fit terminal width
 		displayName := item.DisplayName
-		maxNameWidth := m.Terminal.Width - 6
+		maxNameWidth := m.Terminal.Width - itemPadding - 6
 		if len(displayName) > maxNameWidth {
 			displayName = displayName[:maxNameWidth-3] + "..."
 		}
 
+		// Center the menu item
+		fmt.Print(strings.Repeat(" ", itemPadding))
 		fmt.Printf("%s%s%s\n", prefix, displayName, suffix)
+	}
 
-		// Show description for selected item
-		if i == m.SelectedIndex && item.Description != "" {
-			descPadding := "    "
-			maxDescWidth := m.Terminal.Width - 8
-			description := item.Description
-			if len(description) > maxDescWidth {
-				description = description[:maxDescWidth-3] + "..."
-			}
-			fmt.Printf("%s%s%s%s\n", descPadding, BlueText, description, ResetColor)
+	// Move to bottom area for entry info and controls
+	bottomStartRow := m.Terminal.Height - bottomInfoHeight + 1
+	fmt.Print(EscSeq + fmt.Sprintf("%d;1H", bottomStartRow))
+
+	// Draw separator line above bottom info
+	bottomSeparator := strings.Repeat("─", m.Terminal.Width-2)
+	fmt.Printf(" %s \n", bottomSeparator)
+
+	// Show detailed info for selected item
+	if m.SelectedIndex < len(m.Items) {
+		selectedEntry := m.Items[m.SelectedIndex].Entry
+
+		// Entry title
+		fmt.Printf(" %sEntry:%s %s\n", BoldText, ResetColor, m.Items[m.SelectedIndex].DisplayName)
+
+		// Version info
+		if selectedEntry.Version != "" {
+			fmt.Printf(" %sVersion:%s %s\n", BoldText, ResetColor, selectedEntry.Version)
+		}
+
+		// Kernel info
+		if selectedEntry.Linux != "" {
+			fmt.Printf(" %sKernel:%s %s\n", BoldText, ResetColor, selectedEntry.Linux)
+		}
+
+		// Devicetree info
+		if selectedEntry.Devicetree != "" {
+			fmt.Printf(" %sDevicetree:%s %s\n", BoldText, ResetColor, selectedEntry.Devicetree)
 		}
 	}
 
-	// Draw footer
-	fmt.Print("\n")
+	// Draw controls footer (centered)
+	fmt.Print(EscSeq + fmt.Sprintf("%d;1H", m.Terminal.Height))
 	footer := "Use ↑↓ arrows, Enter to select, 'q' to quit"
 	if m.Timeout > 0 {
 		footer += fmt.Sprintf(" (timeout: %ds)", m.Timeout)

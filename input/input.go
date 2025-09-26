@@ -1,7 +1,6 @@
 package input
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,17 +37,17 @@ const (
 
 // InputDevice represents an input device
 type InputDevice struct {
-	Name string
-	Path string
-	File *os.File
+	Name      string
+	Path      string
+	File      *os.File
+	keyStates map[uint16]bool // Track pressed state of each key
 }
 
 // InputManager manages multiple input sources
 type InputManager struct {
-	devices    []InputDevice
-	eventChan  chan KeyEvent
-	stopChan   chan bool
-	keyboardCh chan byte
+	devices   []InputDevice
+	eventChan chan KeyEvent
+	stopChan  chan bool
 }
 
 // Linux input event structure
@@ -67,23 +66,31 @@ const (
 
 // Key codes for hardware buttons
 const (
-	KEY_VOLUMEUP   = 115
-	KEY_VOLUMEDOWN = 114
-	KEY_POWER      = 116
+	KEY_ESC        = 1
+	KEY_1          = 2
+	KEY_2          = 3
+	KEY_3          = 4
+	KEY_4          = 5
+	KEY_5          = 6
+	KEY_6          = 7
+	KEY_7          = 8
+	KEY_8          = 9
+	KEY_9          = 10
+	KEY_Q          = 16
 	KEY_ENTER      = 28
 	KEY_UP         = 103
 	KEY_DOWN       = 108
-	KEY_ESC        = 1
-	KEY_Q          = 16
+	KEY_VOLUMEDOWN = 114
+	KEY_VOLUMEUP   = 115
+	KEY_POWER      = 116
 )
 
 // NewInputManager creates a new input manager
 func NewInputManager() *InputManager {
 	return &InputManager{
-		devices:    make([]InputDevice, 0),
-		eventChan:  make(chan KeyEvent, 10),
-		stopChan:   make(chan bool, 1),
-		keyboardCh: make(chan byte, 10),
+		devices:   make([]InputDevice, 0),
+		eventChan: make(chan KeyEvent, 10),
+		stopChan:  make(chan bool, 1),
 	}
 }
 
@@ -113,12 +120,13 @@ func (im *InputManager) DiscoverDevices() error {
 				continue
 			}
 
-			// Check if this device has the keys we're interested in
-			if hasRelevantKeys(file, name) {
+			// Check if device supports EV_KEY events
+			if supportsKeyEvents(file) {
 				device := InputDevice{
-					Name: name,
-					Path: devicePath,
-					File: file,
+					Name:      name,
+					Path:      devicePath,
+					File:      file,
+					keyStates: make(map[uint16]bool),
 				}
 				im.devices = append(im.devices, device)
 				fmt.Printf("Found input device: %s (%s)\n", name, devicePath)
@@ -155,28 +163,21 @@ func getDeviceName(file *os.File) (string, error) {
 	return string(name[:end]), nil
 }
 
-// hasRelevantKeys checks if a device has volume/power keys
-func hasRelevantKeys(file *os.File, name string) bool {
-	// For simplicity, check device name patterns
-	name = strings.ToLower(name)
+// supportsKeyEvents checks if a device supports EV_KEY events
+func supportsKeyEvents(file *os.File) bool {
+	// Check if device supports EV_KEY events
+	evBits := make([]byte, 4) // EV_MAX is 0x1f, so 4 bytes is enough
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
+		file.Fd(),
+		uintptr(0x80044520), // EVIOCGBIT(0, sizeof(ev_bits)) - get supported event types
+		uintptr(unsafe.Pointer(&evBits[0])))
 
-	// Common patterns for devices with hardware buttons
-	patterns := []string{
-		"gpio-keys",
-		"power",
-		"volume",
-		"button",
-		"pmic",
-		"keyboard",
+	if errno != 0 {
+		return false
 	}
 
-	for _, pattern := range patterns {
-		if strings.Contains(name, pattern) {
-			return true
-		}
-	}
-
-	return false
+	// Check if EV_KEY bit is set (bit 1)
+	return evBits[0]&0x02 != 0 // EV_KEY = 1, so bit 1
 }
 
 // StartListening starts listening for input events
@@ -185,9 +186,6 @@ func (im *InputManager) StartListening() {
 	for i := range im.devices {
 		go im.listenDevice(&im.devices[i])
 	}
-
-	// Start keyboard listener for fallback
-	go im.listenKeyboard()
 }
 
 // listenDevice listens for events from a hardware device
@@ -200,89 +198,51 @@ func (im *InputManager) listenDevice(device *InputDevice) {
 		case <-im.stopChan:
 			return
 		default:
+			// Read raw input event
 			n, err := device.File.Read(buf)
-			if err != nil || n != eventSize {
+			if err != nil {
+				// Device disconnected or error, exit this goroutine
+				fmt.Printf("Error reading from device %s: %v\n", device.Path, err)
+				return
+			}
+
+			if n != eventSize {
+				// Incomplete read, skip this event
 				continue
 			}
 
 			// Parse the input event
 			event := (*inputEvent)(unsafe.Pointer(&buf[0]))
 
-			if event.Type == EV_KEY && event.Value == 1 { // Key press
-				keyEvent := im.translateKeyCode(event.Code)
-				if keyEvent.Code != KeyUnknown {
-					select {
-					case im.eventChan <- keyEvent:
-					default:
-						// Channel full, drop event
-					}
-				}
+			// Only process EV_KEY events
+			if event.Type == EV_KEY {
+				im.handleKeyEvent(device, event.Code, event.Value)
 			}
+			// Ignore other event types (EV_SYN, etc.)
 		}
 	}
 }
 
-// listenKeyboard listens for keyboard input as fallback
-func (im *InputManager) listenKeyboard() {
-	// Set up raw keyboard input
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		select {
-		case <-im.stopChan:
-			return
-		default:
-			char, err := reader.ReadByte()
-			if err != nil {
-				continue
-			}
-
-			var keyEvent KeyEvent
-			keyEvent.Type = KeyPress
-
-			switch char {
-			case 27: // ESC sequence
-				// Try to read arrow keys
-				if next, err := reader.ReadByte(); err == nil && next == '[' {
-					if arrow, err := reader.ReadByte(); err == nil {
-						switch arrow {
-						case 'A': // Up arrow
-							keyEvent.Code = KeyUp
-						case 'B': // Down arrow
-							keyEvent.Code = KeyDown
-						default:
-							keyEvent.Code = KeyEscape
-						}
-					} else {
-						keyEvent.Code = KeyEscape
-					}
-				} else {
-					keyEvent.Code = KeyEscape
+// handleKeyEvent processes key events and only sends KeyEvent when complete press cycle is detected
+func (im *InputManager) handleKeyEvent(device *InputDevice, keyCode uint16, value int32) {
+	switch value {
+	case 1: // Key press
+		device.keyStates[keyCode] = true
+	case 0: // Key release
+		// Only send key event if we previously recorded a press for this key
+		if device.keyStates[keyCode] {
+			device.keyStates[keyCode] = false
+			keyEvent := im.translateKeyCode(keyCode)
+			if keyEvent.Code != KeyUnknown {
+				select {
+				case im.eventChan <- keyEvent:
+				default:
+					// Channel full, drop event to avoid blocking
 				}
-			case 10, 13: // Enter
-				keyEvent.Code = KeySelect
-			case 'j': // Vi-style down
-				keyEvent.Code = KeyDown
-			case 'k': // Vi-style up
-				keyEvent.Code = KeyUp
-			case 'q', 'Q': // Quit
-				keyEvent.Code = KeyQuit
-			default:
-				// Number keys for direct selection
-				if char >= '1' && char <= '9' {
-					// Store the number in a special way
-					keyEvent.Code = KeyCode(int(KeyQuit) + int(char-'0'))
-				} else {
-					continue // Ignore other keys
-				}
-			}
-
-			select {
-			case im.eventChan <- keyEvent:
-			default:
-				// Channel full, drop event
 			}
 		}
+	case 2: // Key repeat - ignore
+		// Do nothing for key repeats
 	}
 }
 
@@ -302,6 +262,10 @@ func (im *InputManager) translateKeyCode(linuxCode uint16) KeyEvent {
 		keyEvent.Code = KeyEscape
 	case KEY_Q:
 		keyEvent.Code = KeyQuit
+	// Support number keys 1-9 for direct selection (useful for menu navigation)
+	case KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
+		// Map numbers to special key codes above KeyQuit
+		keyEvent.Code = KeyCode(int(KeyQuit) + int(linuxCode-KEY_1+1))
 	default:
 		keyEvent.Code = KeyUnknown
 	}
@@ -332,17 +296,4 @@ func (im *InputManager) Stop() {
 	for _, device := range im.devices {
 		device.File.Close()
 	}
-}
-
-// SetupTerminal prepares terminal for raw input
-func SetupTerminal() error {
-	// Put terminal in raw mode for keyboard input
-	cmd := "stty -echo cbreak"
-	return syscall.Exec("/bin/sh", []string{"/bin/sh", "-c", cmd}, os.Environ())
-}
-
-// RestoreTerminal restores normal terminal mode
-func RestoreTerminal() error {
-	cmd := "stty echo -cbreak"
-	return syscall.Exec("/bin/sh", []string{"/bin/sh", "-c", cmd}, os.Environ())
 }
