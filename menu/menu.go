@@ -131,7 +131,7 @@ func NewBootMenu(entries []*entry.BootEntry, title string) *BootMenu {
 
 	// Convert entries to menu items
 	for i, e := range entries {
-		displayName := e.Title
+		displayName := strings.TrimSpace(e.Title)
 		if displayName == "" {
 			displayName = fmt.Sprintf("Boot Entry %d", i+1)
 		}
@@ -258,32 +258,24 @@ func (m *BootMenu) showInteractiveMenu() (*entry.BootEntry, error) {
 		}()
 	}
 
-	// Start input readers
-	if m.InputManager != nil {
-		// Use hardware input manager
-		go func() {
-			for {
-				event := m.InputManager.GetEvent()
-				switch event.Code {
-				case input.KeyUp:
-					inputCh <- 'k' // Simulate Vi up key
-				case input.KeyDown:
-					inputCh <- 'j' // Simulate Vi down key
-				case input.KeySelect:
-					inputCh <- 13 // Simulate Enter
-				case input.KeyQuit, input.KeyEscape:
-					inputCh <- 'q' // Simulate quit
-				}
-			}
-		}()
+	// Start hardware input reader
+	if m.InputManager == nil {
+		return nil, fmt.Errorf("no input manager available - hardware input required")
 	}
 
-	// Keyboard fallback
 	go func() {
-		buf := make([]byte, 1)
 		for {
-			os.Stdin.Read(buf)
-			inputCh <- buf[0]
+			event := m.InputManager.GetEvent()
+			switch event.Code {
+			case input.KeyUp:
+				inputCh <- 'k' // Simulate Vi up key
+			case input.KeyDown:
+				inputCh <- 'j' // Simulate Vi down key
+			case input.KeySelect:
+				inputCh <- 13 // Simulate Enter
+			case input.KeyQuit, input.KeyEscape:
+				inputCh <- 'q' // Simulate quit
+			}
 		}
 	}()
 
@@ -298,47 +290,20 @@ func (m *BootMenu) showInteractiveMenu() (*entry.BootEntry, error) {
 
 		case key := <-inputCh:
 			switch key {
-			case 10, 13: // Enter
+			case 13: // Enter (from hardware input)
 				return m.Items[m.SelectedIndex].Entry, nil
 
-			case 27: // ESC sequence
-				// Read the next two bytes for arrow keys
-				buf := make([]byte, 2)
-				os.Stdin.Read(buf)
-				if buf[0] == '[' {
-					switch buf[1] {
-					case 'A': // Up arrow
-						if m.SelectedIndex > 0 {
-							m.SelectedIndex--
-						}
-					case 'B': // Down arrow
-						if m.SelectedIndex < len(m.Items)-1 {
-							m.SelectedIndex++
-						}
-					}
-				}
-
-			case 'q', 'Q': // Quit
+			case 'q': // Quit (from hardware input)
 				return nil, fmt.Errorf("menu cancelled by user")
 
-			case 'j': // Vi-style down
+			case 'j': // Vi-style down (from hardware input)
 				if m.SelectedIndex < len(m.Items)-1 {
 					m.SelectedIndex++
 				}
 
-			case 'k': // Vi-style up
+			case 'k': // Vi-style up (from hardware input)
 				if m.SelectedIndex > 0 {
 					m.SelectedIndex--
-				}
-
-			default:
-				// Number key selection
-				if key >= '1' && key <= '9' {
-					index := int(key - '1')
-					if index < len(m.Items) {
-						m.SelectedIndex = index
-						return m.Items[m.SelectedIndex].Entry, nil
-					}
 				}
 			}
 		}
@@ -361,12 +326,7 @@ func (m *BootMenu) drawMenu() {
 
 	// Draw title (centered)
 	titlePadding := max(0, (m.Terminal.Width-len(m.Title))/2)
-	fmt.Print(strings.Repeat(" ", titlePadding) + BoldText + CyanText + m.Title + ResetColor + "\n")
-
-	// Draw separator (centered)
-	separator := strings.Repeat("─", min(m.Terminal.Width-4, len(m.Title)+10))
-	separatorPadding := max(0, (m.Terminal.Width-len(separator))/2)
-	fmt.Print(strings.Repeat(" ", separatorPadding) + separator + "\n\n")
+	fmt.Print(strings.Repeat(" ", titlePadding) + BoldText + CyanText + m.Title + ResetColor + "\n\n")
 
 	// Calculate menu item centering
 	maxItemWidth := 0
@@ -375,22 +335,22 @@ func (m *BootMenu) drawMenu() {
 			maxItemWidth = len(item.DisplayName)
 		}
 	}
-	maxItemWidth += 4 // Add space for selection indicator and padding
+	maxItemWidth += 2 // Add padding
 	itemPadding := max(0, (m.Terminal.Width-maxItemWidth)/2)
 
 	// Draw menu items (centered)
 	for i, item := range m.Items {
-		prefix := "  "
+		prefix := ""
 		suffix := ""
 
 		if i == m.SelectedIndex {
-			prefix = BoldText + ReverseVideo + "> "
+			prefix = BoldText + ReverseVideo
 			suffix = ResetColor
 		}
 
 		// Truncate long names to fit terminal width
 		displayName := item.DisplayName
-		maxNameWidth := m.Terminal.Width - itemPadding - 6
+		maxNameWidth := m.Terminal.Width - itemPadding - 2
 		if len(displayName) > maxNameWidth {
 			displayName = displayName[:maxNameWidth-3] + "..."
 		}
@@ -445,13 +405,6 @@ func (m *BootMenu) drawMenu() {
 // Helper functions
 func max(a, b int) int {
 	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
 		return a
 	}
 	return b

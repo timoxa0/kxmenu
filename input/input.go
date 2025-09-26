@@ -116,23 +116,18 @@ func (im *InputManager) DiscoverDevices() error {
 			// Get device name
 			name, err := getDeviceName(file)
 			if err != nil {
-				file.Close()
-				continue
+				name = entry.Name() // Use filename as fallback
 			}
 
-			// Check if device supports EV_KEY events
-			if supportsKeyEvents(file) {
-				device := InputDevice{
-					Name:      name,
-					Path:      devicePath,
-					File:      file,
-					keyStates: make(map[uint16]bool),
-				}
-				im.devices = append(im.devices, device)
-				fmt.Printf("Found input device: %s (%s)\n", name, devicePath)
-			} else {
-				file.Close()
+			// Add all devices that can be opened (skip capability check for now)
+			device := InputDevice{
+				Name:      name,
+				Path:      devicePath,
+				File:      file,
+				keyStates: make(map[uint16]bool),
 			}
+			im.devices = append(im.devices, device)
+			fmt.Printf("Found input device: %s (%s)\n", name, devicePath)
 		}
 	}
 
@@ -161,23 +156,6 @@ func getDeviceName(file *os.File) (string, error) {
 	}
 
 	return string(name[:end]), nil
-}
-
-// supportsKeyEvents checks if a device supports EV_KEY events
-func supportsKeyEvents(file *os.File) bool {
-	// Check if device supports EV_KEY events
-	evBits := make([]byte, 4) // EV_MAX is 0x1f, so 4 bytes is enough
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
-		file.Fd(),
-		uintptr(0x80044520), // EVIOCGBIT(0, sizeof(ev_bits)) - get supported event types
-		uintptr(unsafe.Pointer(&evBits[0])))
-
-	if errno != 0 {
-		return false
-	}
-
-	// Check if EV_KEY bit is set (bit 1)
-	return evBits[0]&0x02 != 0 // EV_KEY = 1, so bit 1
 }
 
 // StartListening starts listening for input events
