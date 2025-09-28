@@ -16,12 +16,6 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "kxmenu",
 	Short: "Kernel execution menu utility",
-	Long: `kxmenu is a powerful kernel execution utility that provides interactive
-boot menus and kexec functionality. It supports both traditional keyboard
-navigation and hardware button controls (volume up/down, power button).
-
-The tool can scan directories for boot entries, display interactive menus
-similar to GRUB2, and execute kernel switching via kexec.`,
 	Version: Version,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Default behavior: show help if no arguments

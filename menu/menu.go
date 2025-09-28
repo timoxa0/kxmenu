@@ -393,7 +393,7 @@ func (m *BootMenu) drawMenu() {
 
 	// Draw controls footer (centered)
 	fmt.Print(EscSeq + fmt.Sprintf("%d;1H", m.Terminal.Height))
-	footer := "Use ↑↓ arrows, Enter to select, 'q' to quit"
+	footer := "Use Arrows/Volume Keys to select, Enter/Power to confirm"
 	if m.Timeout > 0 {
 		footer += fmt.Sprintf(" (timeout: %ds)", m.Timeout)
 	}

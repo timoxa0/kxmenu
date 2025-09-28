@@ -15,17 +15,7 @@ import (
 var menuCmd = &cobra.Command{
 	Use:   "menu [directory]",
 	Short: "Show interactive GRUB2-style boot menu with hardware key support",
-	Long: `Display an interactive boot menu similar to GRUB2 that supports both
-keyboard navigation and hardware buttons:
-
-- Volume Up / Arrow Up: Navigate up
-- Volume Down / Arrow Down: Navigate down  
-- Power Button / Enter: Select entry
-- Q key / ESC: Quit menu
-
-The menu automatically detects available input devices including GPIO buttons
-commonly found on embedded systems and single board computers.`,
-	Args: cobra.MaximumNArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		dir := "/boot"
 		if len(args) > 0 {
@@ -84,9 +74,7 @@ func showEnhancedBootMenu(dir, bootRoot string, timeout int, enableHardware bool
 		bootMenu.SetTimeout(timeout)
 	}
 
-	fmt.Println("Use Volume Up/Down or Arrow keys to navigate")
-	fmt.Println("Press Power Button or Enter to select")
-	fmt.Println("Press Q to quit\n")
+	fmt.Println("")
 
 	selectedEntry, err := bootMenu.Show()
 	if err != nil {

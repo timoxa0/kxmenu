@@ -13,9 +13,6 @@ import (
 var listCmd = &cobra.Command{
 	Use:   "list [directory]",
 	Short: "List available boot entries in directory",
-	Long: `Scan a directory for boot entry configuration files and display
-them in a simple list format. This is useful for seeing what entries
-are available before using the interactive menu.`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		dir := "/boot"

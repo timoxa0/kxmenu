@@ -28,34 +28,7 @@ func LoadEntry(entryFile, bootRoot string) error {
 		return fmt.Errorf("failed to parse boot entry: %v", err)
 	}
 
-	// Clean up tuned parameters
-	bootEntry.CleanupEntry()
-
-	// Print boot entry information
-	bootEntry.PrintEntry()
-
-	// Prepare kernel path and handle decompression if needed
-	kernelPath := filepath.Join(bootRoot, bootEntry.Linux)
-	if strings.HasPrefix(filepath.Base(bootEntry.Linux), "vmlinuz") {
-		decompressedPath, err := decompressKernel(kernelPath)
-		if err != nil {
-			return fmt.Errorf("decompression failed: %v", err)
-		}
-		kernelPath = decompressedPath
-		defer os.Remove(decompressedPath)
-	}
-
-	// Load kernel with kexec
-	err = loadKernel(kernelPath, bootRoot, bootEntry)
-	if err != nil {
-		return fmt.Errorf("failed to load kernel: %v", err)
-	}
-
-	// Prompt user and execute
-	fmt.Println("Loading complete, press Enter to boot into the new kernel...")
-	fmt.Scanln()
-
-	return executeKexec()
+	return LoadEntryFromParsed(bootEntry, bootRoot)
 }
 
 // LoadEntryFromParsed handles kexec operations for an already parsed boot entry
@@ -87,10 +60,6 @@ func LoadEntryFromParsed(bootEntry *entry.BootEntry, bootRoot string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load kernel: %v", err)
 	}
-
-	// Prompt user and execute
-	fmt.Println("Loading complete, press Enter to boot into the new kernel...")
-	fmt.Scanln()
 
 	return executeKexec()
 }

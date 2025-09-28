@@ -15,9 +15,6 @@ import (
 var scanCmd = &cobra.Command{
 	Use:   "scan [directory]",
 	Short: "Scan directory and select entry interactively (simple text mode)",
-	Long: `Scan a directory for boot entries and present a simple numbered
-selection menu. This is the legacy mode that works in all terminal
-environments without requiring advanced input handling.`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		dir := "/boot"
